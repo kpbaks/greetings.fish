@@ -4,26 +4,91 @@ function fish_greeting
     set -l red (set_color red)
     set -l blue (set_color blue)
     set -l yellow (set_color yellow)
+    set -l url_markup (set_color cyan --italics)
+
+    set -l prefix "$blue><>$reset"
     # set -l bggreen (set_color '#000000' --background green)
     # set -l bgred (set_color '#000000' --background red)
     # set -l bgblue (set_color '#000000' --background blue)
     # set -l bgyellow (set_color '#000000' --background yellow)
+    set -l cache_dir $__fish_user_data_dir/greetings.fish
+    test -d $cache_dir; or command mkdir $cache_dir
+    set -l cache_stale_after 86400 # 24 hours
 
     printf "%s><>%s Greetings Terrestial! %s<><%s\n" $blue $reset $blue $reset
+    # Print version of running fish interpreter, and check if a newer version is available
+    begin
+        set -l cache $cache_dir/latest_fish_version
+        if not test -f $cache; or test (path mtime --relative $cache) -gt $cache_stale_after
+            # Download cache if it does not exist or have become stale
+            set -l url https://api.github.com/repos/fish-shell/fish-shell/releases/latest
+            # Print a line indicating a network request is happening, as can take some time with poor connection
+            printf '%s fetching version of latest release from %s%s%s ...\n' $prefix $url_markup $url $reset
+            # https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797#cursor-controls
+            command curl -s $url | string match --regex --groups-only '"tag_name": "(.+)"' >$cache
+            # Delete the indicator afterwards
+            printf '\x1b[1A' # Move the cursor one line up
+            printf "\x1b[0G" # Move cursor to the start of the line (0'th column).
+            printf "\x1b[2K" # Clear the current line, to erase the leftover (partial) prompt.
+        end
+
+        read latest_fish_version <$cache
+
+        if test $version != $latest_fish_version
+            echo $version | read -d . -l major minor patch
+            echo $latest_fish_version | read -d . -l latest_major latest_minor latest_patch
+
+            set -l major_color $reset
+            set -l major_color_newest_version $reset
+            if test $major -lt $latest_major
+                set major_color $red
+                set major_color_newest_version $green
+            end
+
+            set -l minor_color $reset
+            set -l minor_color_newest_version $reset
+            if test $minor -lt $latest_minor
+                set minor_color $red
+                set minor_color_newest_version $green
+            end
+
+            set -l patch_color $reset
+            set -l patch_color_newest_version $reset
+            if test $patch -lt $latest_patch
+                set patch_color $red
+                set patch_color_newest_version $green
+            end
+
+            printf '%s A newer fish is available! current version  %s%d%s.%s%d%s.%s%d%s, the latest version is %s%s%s.%s%s%s.%s%s%s\n' \
+                $prefix \
+                $major_color $major $reset \
+                $minor_color $minor $reset \
+                $patch_color $patch $reset \
+                $major_color_newest_version $latest_major $reset \
+                $minor_color_newest_version $latest_minor $reset \
+                $patch_color_newest_version $latest_patch $reset
+            printf '%s><>%s See %shttps://github.com/fish-shell/fish-shell/releases/%s\n' (set_color cyan --underline) $reset
+        end
+    end
+
+    # Notify how many other fish processes are running
     begin
         set -l other_fish_processes_running (command pgrep fish | count)
         switch $other_fish_processes_running
             case 0
-                printf '%s><>%s This is the only fish swimming in the %sprocess sea%s right now!\n' $blue $reset $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
+                printf '%s This is the only fish swimming in the %sprocess sea%s right now!\n' $prefix $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
             case 1
-                printf '%s><>%s There is %s%d%s other fish swimming in the %sprocess sea%s right now!\n' $blue $reset $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
+                printf '%s There is %s%d%s other fish swimming in the %sprocess sea%s right now!\n' $prefix $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
             case '*'
-                printf '%s><>%s There are %s%d%s other fishes swimming in the %sprocess sea%s right now!\n' $blue $reset $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
+                printf '%s There are %s%d%s other fishes swimming in the %sprocess sea%s right now!\n' $prefix $blue $other_fish_processes_running $reset (set_color --dim --italics) $reset
         end
     end
 
     begin
-        set -l f $__fish_user_data_dir/github_fish_shell_issues
+        # TODO: refactor caching
+        set -l f $__fish_user_data_dir/github_fish_shell_num_issues
+        # set -l f $__fish_user_data_dir/github_fish_shell_num_issues_previously
+        set -l new_issues $__fish_user_data_dir/github_fish_shell_new_issues
         if not test -f $f
             # gh pr list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
             gh issue list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
@@ -41,10 +106,15 @@ function fish_greeting
         set -l diff (math "$num_issues - $num_issues_previous")
         if test $diff -gt 0
             printf ' up %s%d%s from yesterday :(' $red $diff $reset
+            if not test -f $new_issues
+            end
+            # TODO: query the title and other details of the issue
+            # gh issue list --repo fish-shell/fish-shell --state=open --json=title,author,url,title,comments --limit=2 | jaq -r '.[] | "\(.title)\n\(.url)\n\(.author.login)\n\(.comments | length)"'
             # print red arrow pointing up
         else if test $diff -lt 0
             printf ' down %s%d%s from yesterday :)' $green $diff $reset
             # print green arrow pointing down
+            # TODO: list which one got fixed
         else
             printf ' (same as yesterday)'
             # print nothing
@@ -53,6 +123,7 @@ function fish_greeting
     end
 
     begin
+        # TODO: refactor caching
         set -l f $__fish_user_data_dir/github_fish_shell_prs
         if not test -f $f
             gh pr list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
@@ -69,10 +140,11 @@ function fish_greeting
         printf '%s><>%s %sprs%s: %s%d%s' $blue $reset $green $reset $green $num_prs $reset
         set -l diff (math "$num_prs - $num_prs_previous")
         if test $diff -gt 0
-            printf ' up %s%d%s from yesterday :(' $red $diff $reset
+            # TODO: query the title and other details of the pr
+            printf ' up %s%d%s from yesterday :)' $green $diff $reset
             # print red arrow pointing up
         else if test $diff -lt 0
-            printf ' down %s%d%s from yesterday :)' $green $diff $reset
+            printf ' down %s%d%s from yesterday :|' $yellow $diff $reset
             # print green arrow pointing down
         else
             printf ' (same as yesterday)'
@@ -90,6 +162,12 @@ function fish_greeting
     for url in $urls
         printf '%s><>%s %s%s%s\n' $blue $reset (set_color cyan) $url $reset
     end
+
+    # TODO: make pr to create `status is-private`
+    if set -q fish_private_mode; and test $fish_private_mode -eq 1
+        printf "%s><>%s Started in %sprivate mode%s, history is not persisted 😏\n" $blue $reset $red $reset
+    end
+
     printf '%s><>%s Ready to dive in, and become a %sfish%s?\n\n' $blue $reset $blue $reset
     # printf '%s%sversion%s: %s\n' $blue $reset $version
     # printf '%skernel%s:  %s\n' $blue $reset (command uname --kernel-release)
@@ -144,4 +222,5 @@ function fish_greeting
     # command -q hostnamectl; and test (random 1 $n) -eq $n; and command hostnamectl
     # NOTE: custom script defined with `home-manager`
     command -q xkcd; and test (random 1 $n) -eq $n; and xkcd
+
 end
