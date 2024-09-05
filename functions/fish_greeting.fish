@@ -73,6 +73,10 @@ function fish_greeting
 
     # Notify how many other fish processes are running
     begin
+        # NOTE: this does not filter out processes whose binary might start with the prefix "fish"
+        # Like if `fish_key_reader` or `fish_indent` is running.
+        # This could be filtered out, but would involve more computation, that I have deemed undesirable
+        # A snappier greeting is more important.
         set -l other_fish_processes_running (command pgrep fish | count)
         switch $other_fish_processes_running
             case 0
@@ -86,9 +90,34 @@ function fish_greeting
 
     begin
         # TODO: refactor caching
-        set -l f $__fish_user_data_dir/github_fish_shell_num_issues
-        # set -l f $__fish_user_data_dir/github_fish_shell_num_issues_previously
-        set -l new_issues $__fish_user_data_dir/github_fish_shell_new_issues
+
+        set -l cache_num_issues $cache_dir/fish_shell_num_github_issues
+        if not test -f $cache_num_issues; or test (path mtime --relative $cache_num_issues) -gt $cache_stale_after
+            command gh issue list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
+        end
+        read num_issues <$cache_num_issues
+
+        set -l cache_num_issues_yesterday $cache_dir/fish_shell_num_github_issues_yesterday
+        if not test -f $cache_num_issues_yesterday
+            echo $num_issues >$cache_num_issues_yesterday
+        end
+        read num_issues_yesterday <$cache_num_issues_yesterday
+        set -l diff (math "$num_issues - $num_issues_yesterday")
+        if test $diff -gt 0
+            # New issues have been added
+            # NOTE: not guaranteed, as one issue could have been closed and another have been opened
+            # To be more robust, would have to download the identifier of the latest issue, and compare it
+        else if test $diff -lt 0
+            # 1 or more issues have been closed
+        else
+            # No update
+            # Again, one issue could have been closed and another have been opened
+        end
+
+
+
+
+        set -l cache_new_issues $cache_dir/fish_shell_new_issues
         if not test -f $f
             # gh pr list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
             gh issue list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
@@ -194,7 +223,24 @@ function fish_greeting
     command date +%H:%M:%S | read --delimiter : hour minute second
     set -l time_color $green
     test $hour -ge 22; and set time_color $red
-    printf "%stime%s:     %s%s:%s:%s%s\n" $blue $reset $time_color $hour $minute $second $reset
+
+    set -l seconds_passed (math "$hour * 3600 + $minute * 60 + $second")
+    set -l ratio_of_day_passed (math "$seconds_passed / 86400")
+
+    set -l cells_available (math $COLUMNS - 23) # 5 + 5 + 5 + 8
+    set -l progressbar_length (math "round($ratio_of_day_passed * $cells_available)")
+    # ▏ # 1/8
+    # ▎ # 1/4
+    # ▍ # 3/8
+    # ▌ # 1/2
+    # ▋ # 5/8
+    # ▊ # 3/4
+    # ▉ # 7/8
+    # █ # 1/1
+
+    set -l progressbar (string repeat --count $progressbar_length "█")
+    set -l progressbar_end todo
+    printf "%stime%s:     %s%s:%s:%s%s     %s%s%s\n" $blue $reset $time_color $hour $minute $second $reset $time_color $progressbar $reset
 
     # if command -q fastfetch
     #     fastfetch --logo none --structure Memory
@@ -223,4 +269,7 @@ function fish_greeting
     # NOTE: custom script defined with `home-manager`
     command -q xkcd; and test (random 1 $n) -eq $n; and xkcd
 
+    set_color --dim
+    string repeat --count $COLUMNS -
+    set_color normal
 end

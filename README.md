@@ -1,2 +1,2 @@
 # greetings.fish
-Opinionated fish_greeting
+Opinionated `fish_greeting`
