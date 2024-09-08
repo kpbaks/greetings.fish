@@ -5,7 +5,13 @@ function fish_greeting
     set -l blue (set_color blue)
     set -l yellow (set_color yellow)
     set -l url_markup (set_color cyan --italics)
+    set -l dim (set_color --dim)
+    set -l b (set_color --bold)
+    set -l i (set_color --italics)
 
+    command -q gh; or return 1
+
+    set -l github_repo fish-shell/fish-shell
     set -l prefix "$blue><>$reset"
     # set -l bggreen (set_color '#000000' --background green)
     # set -l bgred (set_color '#000000' --background red)
@@ -24,17 +30,27 @@ function fish_greeting
             set -l url https://api.github.com/repos/fish-shell/fish-shell/releases/latest
             # Print a line indicating a network request is happening, as can take some time with poor connection
             printf '%s fetching version of latest release from %s%s%s ...\n' $prefix $url_markup $url $reset
+            # NOTE: assumes github server is reachable, and that jq and curl is installed
+            # command curl -s $url | command jq -r '.tag_name, .published_at' | read --line tag_name published_at
+            command curl -s $url | command jq -r '.tag_name, .published_at' >$cache
+
+            # command curl -s $url | string match --regex --groups-only '"tag_name": "(.+)"' >$cache
             # https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797#cursor-controls
-            command curl -s $url | string match --regex --groups-only '"tag_name": "(.+)"' >$cache
             # Delete the indicator afterwards
             printf '\x1b[1A' # Move the cursor one line up
             printf "\x1b[0G" # Move cursor to the start of the line (0'th column).
             printf "\x1b[2K" # Clear the current line, to erase the leftover (partial) prompt.
         end
 
-        read latest_fish_version <$cache
+        # read latest_fish_version <$cache
+        read --line latest_fish_version published_at <$cache
 
-        if test $version != $latest_fish_version
+        echo $published_at
+
+        if test $version = $latest_fish_version
+            # TODO: move logic here to check if newest version
+            printf '%s><>%s This %sfish%s is version %s%s%s %s(the newest version, released %s)%s\n' $blue $reset $blue $reset $green $version $reset $dim $published_at $reset
+        else
             echo $version | read -d . -l major minor patch
             echo $latest_fish_version | read -d . -l latest_major latest_minor latest_patch
 
@@ -71,6 +87,9 @@ function fish_greeting
         end
     end
 
+
+    return
+
     # Notify how many other fish processes are running
     begin
         # NOTE: this does not filter out processes whose binary might start with the prefix "fish"
@@ -93,7 +112,7 @@ function fish_greeting
 
         set -l cache_num_issues $cache_dir/fish_shell_num_github_issues
         if not test -f $cache_num_issues; or test (path mtime --relative $cache_num_issues) -gt $cache_stale_after
-            command gh issue list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$f
+            command gh issue list --repo fish-shell/fish-shell --state=open --json=id --jq=length --limit=9999 >$cache_num_issues
         end
         read num_issues <$cache_num_issues
 
@@ -182,9 +201,6 @@ function fish_greeting
         echo
     end
 
-    # TODO: move logic here to check if newest version
-
-    printf '%s><>%s This %sfish%s is version %s%s%s\n' $blue $reset $blue $reset $yellow $version $reset
 
     set -l urls https://github.com/fish-shell/fish-shell/{pull,issues}/ https://fishshell.com/docs/current/
 
@@ -264,10 +280,10 @@ function fish_greeting
     # echo
     # cal
 
-    set -l n 5
+    # set -l n 5
     # command -q hostnamectl; and test (random 1 $n) -eq $n; and command hostnamectl
     # NOTE: custom script defined with `home-manager`
-    command -q xkcd; and test (random 1 $n) -eq $n; and xkcd
+    # command -q xkcd; and test (random 1 $n) -eq $n; and xkcd
 
     set_color --dim
     string repeat --count $COLUMNS -
